@@ -1,9 +1,11 @@
-import operator
 import math
+import operator
 from functools import reduce
+
 import numpy as np
-from . import ndarray_backend_numpy
-from . import ndarray_backend_cpu
+
+from . import ndarray_backend_cpu, ndarray_backend_numpy
+
 
 # math.prod not in Python 3.7
 def prod(x):
@@ -32,15 +34,15 @@ class BackendDevice:
     def randn(self, *shape, dtype="float32"):
         # note: numpy doesn't support types within standard random routines, and
         # .astype("float32") does work if we're generating a singleton
-        return NDArray(numpy.random.randn(*shape).astype(dtype), device=self)
+        return NDArray(np.random.randn(*shape).astype(dtype), device=self)
 
     def rand(self, *shape, dtype="float32"):
         # note: numpy doesn't support types within standard random routines, and
         # .astype("float32") does work if we're generating a singleton
-        return NDArray(numpy.random.rand(*shape).astype(dtype), device=self)
+        return NDArray(np.random.rand(*shape).astype(dtype), device=self)
 
     def one_hot(self, n, i, dtype="float32"):
-        return NDArray(numpy.eye(n, dtype=dtype)[i], device=self)
+        return NDArray(np.eye(n, dtype=dtype)[i], device=self)
 
     def empty(self, shape, dtype="float32"):
         dtype = "float32" if dtype is None else dtype
@@ -241,7 +243,11 @@ class NDArray:
         """
 
         ### BEGIN YOUR SOLUTION
-        raise NotImplementedError()
+        # 怎么reshape呢？
+        if self.size != prod(new_shape):
+            raise ValueError
+        
+        return NDArray.make(new_shape, device=self.device, handle=self._handle)
         ### END YOUR SOLUTION
 
     def permute(self, new_axes):
@@ -264,7 +270,10 @@ class NDArray:
         """
 
         ### BEGIN YOUR SOLUTION
-        raise NotImplementedError()
+        assert len(new_axes) == len(self.shape)
+        new_shape = tuple([self.shape[i] for i in new_axes])
+        new_strides = tuple([self.strides[i] for i in new_axes])
+        return self.as_strided(new_shape, new_strides)
         ### END YOUR SOLUTION
 
     def broadcast_to(self, new_shape):
@@ -285,7 +294,17 @@ class NDArray:
         """
 
         ### BEGIN YOUR SOLUTION
-        raise NotImplementedError()
+        # assertion error if new_shape[i] != shape[i] for all i where shape[i] != 1
+        # broadcast 是可以的
+        new_strides = [0] * len(new_shape)
+        for i in range(1, len(self.shape)):
+            if self.shape[-i] != 1:
+                assert new_shape[-i] == self.shape[-i]
+                
+            if new_shape[-i] == self.shape[-i]:
+                new_strides[-i] = self.strides[-i]
+        
+        return self.as_strided(new_shape, tuple(new_strides))
         ### END YOUR SOLUTION
 
     ### Get and set elements
@@ -348,7 +367,15 @@ class NDArray:
         assert len(idxs) == self.ndim, "Need indexes equal to number of dimensions"
 
         ### BEGIN YOUR SOLUTION
-        raise NotImplementedError()
+        # idx 现在就是各个维度需要拿的 范围
+        new_offset = 0
+        new_shape = list(self.shape)
+        new_strides = list(self.strides)
+        for i, sli in enumerate(idxs):
+            new_offset += self.strides[i]*sli.start
+            new_shape[i] = math.ceil((sli.stop - sli.start)/sli.step) #?
+            new_strides[i] = self.strides[i]*sli.step
+        return NDArray.make(tuple(new_shape), tuple(new_strides), self.device, self._handle, new_offset)
         ### END YOUR SOLUTION
 
     def __setitem__(self, idxs, other):
@@ -549,7 +576,7 @@ def array(a, dtype="float32", device=None):
 
 def empty(shape, dtype="float32", device=None):
     device = device if device is not None else default_device()
-    return devie.empty(shape, dtype)
+    return device.empty(shape, dtype)
 
 
 def full(shape, fill_value, dtype="float32", device=None):
