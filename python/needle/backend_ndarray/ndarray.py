@@ -297,7 +297,7 @@ class NDArray:
         # assertion error if new_shape[i] != shape[i] for all i where shape[i] != 1
         # broadcast 是可以的
         new_strides = [0] * len(new_shape)
-        for i in range(1, len(self.shape)):
+        for i in range(1, len(self.shape) + 1):
             if self.shape[-i] != 1:
                 assert new_shape[-i] == self.shape[-i]
                 
