@@ -64,6 +64,47 @@ void Compact(const AlignedArray& a, AlignedArray* out, std::vector<uint32_t> sha
    */
   /// BEGIN YOUR SOLUTION
   
+  size_t n_dim = shape.size();
+  std::vector<uint32_t> indices(n_dim, 0);
+  
+  for(size_t i = 0; i < out->size; i++) {
+    // 计算出 要赋值的元素在a中的下标位置
+    uint32_t idx = 0;
+    // 遍历 维护的indices 列表
+    for(int k = 0; k < n_dim; k++) {
+      idx += strides[k] * indices[k];
+    }
+
+    out->ptr[i] = a.ptr[offset + idx];
+    // 更新 indices 列表
+    indices[n_dim - 1] += 1;
+    for(int k = n_dim - 1; k >= 0 ; k--) {
+      if (indices[k] == shape[k]) {
+        indices[k] = 0;
+        if (k != 0) {
+          indices[k-1] += 1;
+        }
+      }
+    } 
+  }
+
+  // size_t dim = shape.size();
+  // std::vector<uint32_t> pos(dim, 0);
+  // for (size_t i=0; i<out->size; i++) {
+  //   uint32_t idx = 0;
+  //   for (int j=0; j<dim; j++) 
+  //     idx += strides[dim-1-j] * pos[j];
+  //   out->ptr[i] = a.ptr[idx + offset];
+  //   pos[0] += 1;
+  //   // carry
+  //   for (int j=0; j<dim; j++) {
+  //     if (pos[j] == shape[dim-1-j]) {
+  //       pos[j] = 0;
+  //       if (j != dim-1)
+  //         pos[j+1] += 1;
+  //     }
+  //   }
+  // }
   /// END YOUR SOLUTION
 }
 
@@ -80,7 +121,30 @@ void EwiseSetitem(const AlignedArray& a, AlignedArray* out, std::vector<uint32_t
    *   offset: offset of the *out* array (not a, which has zero offset, being compact)
    */
   /// BEGIN YOUR SOLUTION
-  
+  size_t n_dim = shape.size();
+  std::vector<uint32_t> indices(n_dim, 0);
+
+  // 已经提前在python 层做了size的断言 assert prod(view.shape) == prod(other.shape)
+  for(int i = 0; i < a.size; i++) {
+    // 计算出 要赋值的元素在a中的下标位置
+    size_t idx = 0;
+    // 遍历 维护的indices 列表
+    for(int k = 0; k < n_dim; k++) {
+      idx += strides[k] * indices[k];
+    }
+
+    out->ptr[offset + idx] = a.ptr[i];
+    // 更新 indices 列表
+    indices[n_dim - 1] += 1;
+    for(int k = n_dim - 1; k >= 0 ; k--) {
+      if (indices[k] == shape[k]) {
+        indices[k] = 0;
+        if (k != 0) {
+          indices[k-1] += 1;
+        }
+      }
+    }
+  }
   /// END YOUR SOLUTION
 }
 
@@ -101,7 +165,25 @@ void ScalarSetitem(const size_t size, scalar_t val, AlignedArray* out, std::vect
    */
 
   /// BEGIN YOUR SOLUTION
-  
+  size_t n_dim = shape.size();
+  std::vector<uint32_t> indices(n_dim, 0);
+  for(size_t i = 0; i < size; i++) {
+    size_t idx = 0;
+    for(int k = 0; k < n_dim; k++) {
+      idx += strides[k] * indices[k];
+    }
+
+    out->ptr[offset + idx] = val;
+    indices[n_dim - 1] += 1;
+    for(int k = n_dim - 1; k >= 0 ; k--) {
+      if (indices[k] == shape[k]) {
+        indices[k] = 0;
+        if (k != 0) {
+          indices[k-1] += 1;
+        }
+      }
+    }
+  }
   /// END YOUR SOLUTION
 }
 
