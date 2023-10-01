@@ -79,7 +79,17 @@ void Fill(CudaArray* out, scalar_t val) {
 
 // Untility function to convert contiguous index i to memory location from strides
 
-
+__device__ size_t TranslateToNonCompactIndex(size_t gid, CudaVec shape, CudaVec strides) {
+  size_t dim = shape.size;
+  size_t base = 1;
+  size_t idx = 0;
+  for (int i = dim - 1; i >= 0; i--) {
+    int idx_dim_i = (gid / base) % shape.data[i];
+    idx += strides.data[i] * idx_dim_i;
+    base *= shape.data[i];
+  }
+  return idx;
+}
 
 
 __global__ void CompactKernel(const scalar_t* a, scalar_t* out, size_t size, CudaVec shape,
@@ -99,7 +109,11 @@ __global__ void CompactKernel(const scalar_t* a, scalar_t* out, size_t size, Cud
   size_t gid = blockIdx.x * blockDim.x + threadIdx.x;
 
   /// BEGIN YOUR SOLUTION
-  
+  // 根基gid 去从 a 的某个位置找元素
+  size_t idx = TranslateToNonCompactIndex(gid, shape, strides);
+
+  if (gid < size)
+    out[gid] = a[offset + idx];
   /// END YOUR SOLUTION
 }
 
@@ -129,6 +143,17 @@ void Compact(const CudaArray& a, CudaArray* out, std::vector<uint32_t> shape,
 
 
 
+__global__ void EwiseSetitemKernel(const scalar_t* a, scalar_t* out, size_t size, CudaVec shape,
+                                  CudaVec strides, size_t offset) {
+  size_t gid = blockIdx.x * blockDim.x + threadIdx.x;
+  
+  size_t idx = TranslateToNonCompactIndex(gid, shape, strides);
+
+  if (gid < size)
+    out[offset + idx] = a[gid];
+}
+
+
 void EwiseSetitem(const CudaArray& a, CudaArray* out, std::vector<uint32_t> shape,
                   std::vector<uint32_t> strides, size_t offset) {
   /**
@@ -143,11 +168,21 @@ void EwiseSetitem(const CudaArray& a, CudaArray* out, std::vector<uint32_t> shap
    *   offset: offset of the *out* array (not a, which has zero offset, being compact)
    */
   /// BEGIN YOUR SOLUTION
-  
+  CudaDims dim = CudaOneDim(out->size);
+  EwiseSetitemKernel<<<dim.grid, dim.block>>>(a.ptr, out->ptr, a.size, VecToCuda(shape),
+                                            VecToCuda(strides), offset);
   /// END YOUR SOLUTION
 }
 
 
+__global__ void ScalarSetitemKernel(size_t size, scalar_t val, scalar_t* out, CudaVec shape,
+                                  CudaVec strides, size_t offset) {
+  size_t gid = blockIdx.x * blockDim.x + threadIdx.x;
+  size_t idx = TranslateToNonCompactIndex(gid, shape, strides);
+
+  if (gid < size)
+    out[offset + idx] = val;
+}
 
 
 void ScalarSetitem(size_t size, scalar_t val, CudaArray* out, std::vector<uint32_t> shape,
@@ -166,7 +201,9 @@ void ScalarSetitem(size_t size, scalar_t val, CudaArray* out, std::vector<uint32
    *   offset: offset of the out array
    */
   /// BEGIN YOUR SOLUTION
-  
+  CudaDims dim = CudaOneDim(out->size);
+  ScalarSetitemKernel<<<dim.grid, dim.block>>>(out->size, val, out->ptr, VecToCuda(shape),
+                                            VecToCuda(strides), offset);
   /// END YOUR SOLUTION
 }
 
