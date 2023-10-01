@@ -44,7 +44,25 @@ void Fill(AlignedArray* out, scalar_t val) {
 }
 
 
-
+uint32_t GetAndIncrementIndex(std::vector<uint32_t> &indices, const std::vector<uint32_t>& shape,
+             const std::vector<uint32_t>& strides, int n_dim) {
+  uint32_t idx = 0;
+  for(int k = 0; k < n_dim; k++) {
+      idx += strides[k] * indices[k];
+  }
+  indices[n_dim - 1] += 1;
+  
+  // 更新 indices 列表
+  for(int k = n_dim - 1; k >= 0 ; k--) {
+    if (indices[k] == shape[k]) {
+      indices[k] = 0;
+      if (k != 0) {
+        indices[k-1] += 1;
+      }
+    }
+  }
+  return idx;
+}
 
 void Compact(const AlignedArray& a, AlignedArray* out, std::vector<uint32_t> shape,
              std::vector<uint32_t> strides, size_t offset) {
@@ -63,48 +81,16 @@ void Compact(const AlignedArray& a, AlignedArray* out, std::vector<uint32_t> sha
    *  function will implement here, so we won't repeat this note.)
    */
   /// BEGIN YOUR SOLUTION
-  
+  // TODO 拆出一些可复用代码出来。
   size_t n_dim = shape.size();
   std::vector<uint32_t> indices(n_dim, 0);
   
   for(size_t i = 0; i < out->size; i++) {
     // 计算出 要赋值的元素在a中的下标位置
-    uint32_t idx = 0;
     // 遍历 维护的indices 列表
-    for(int k = 0; k < n_dim; k++) {
-      idx += strides[k] * indices[k];
-    }
-
-    out->ptr[i] = a.ptr[offset + idx];
-    // 更新 indices 列表
-    indices[n_dim - 1] += 1;
-    for(int k = n_dim - 1; k >= 0 ; k--) {
-      if (indices[k] == shape[k]) {
-        indices[k] = 0;
-        if (k != 0) {
-          indices[k-1] += 1;
-        }
-      }
-    } 
+    uint32_t idx = GetAndIncrementIndex(indices, shape, strides, n_dim);
+    out->ptr[i] = a.ptr[offset + idx]; 
   }
-
-  // size_t dim = shape.size();
-  // std::vector<uint32_t> pos(dim, 0);
-  // for (size_t i=0; i<out->size; i++) {
-  //   uint32_t idx = 0;
-  //   for (int j=0; j<dim; j++) 
-  //     idx += strides[dim-1-j] * pos[j];
-  //   out->ptr[i] = a.ptr[idx + offset];
-  //   pos[0] += 1;
-  //   // carry
-  //   for (int j=0; j<dim; j++) {
-  //     if (pos[j] == shape[dim-1-j]) {
-  //       pos[j] = 0;
-  //       if (j != dim-1)
-  //         pos[j+1] += 1;
-  //     }
-  //   }
-  // }
   /// END YOUR SOLUTION
 }
 
@@ -127,23 +113,8 @@ void EwiseSetitem(const AlignedArray& a, AlignedArray* out, std::vector<uint32_t
   // 已经提前在python 层做了size的断言 assert prod(view.shape) == prod(other.shape)
   for(int i = 0; i < a.size; i++) {
     // 计算出 要赋值的元素在a中的下标位置
-    size_t idx = 0;
-    // 遍历 维护的indices 列表
-    for(int k = 0; k < n_dim; k++) {
-      idx += strides[k] * indices[k];
-    }
-
+    uint32_t idx = GetAndIncrementIndex(indices, shape, strides, n_dim);
     out->ptr[offset + idx] = a.ptr[i];
-    // 更新 indices 列表
-    indices[n_dim - 1] += 1;
-    for(int k = n_dim - 1; k >= 0 ; k--) {
-      if (indices[k] == shape[k]) {
-        indices[k] = 0;
-        if (k != 0) {
-          indices[k-1] += 1;
-        }
-      }
-    }
   }
   /// END YOUR SOLUTION
 }
@@ -168,21 +139,8 @@ void ScalarSetitem(const size_t size, scalar_t val, AlignedArray* out, std::vect
   size_t n_dim = shape.size();
   std::vector<uint32_t> indices(n_dim, 0);
   for(size_t i = 0; i < size; i++) {
-    size_t idx = 0;
-    for(int k = 0; k < n_dim; k++) {
-      idx += strides[k] * indices[k];
-    }
-
+    uint32_t idx = GetAndIncrementIndex(indices, shape, strides, n_dim);
     out->ptr[offset + idx] = val;
-    indices[n_dim - 1] += 1;
-    for(int k = n_dim - 1; k >= 0 ; k--) {
-      if (indices[k] == shape[k]) {
-        indices[k] = 0;
-        if (k != 0) {
-          indices[k-1] += 1;
-        }
-      }
-    }
   }
   /// END YOUR SOLUTION
 }
