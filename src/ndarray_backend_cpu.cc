@@ -334,7 +334,14 @@ void Matmul(const AlignedArray& a, const AlignedArray& b, AlignedArray* out, uin
    */
 
   /// BEGIN YOUR SOLUTION
-  
+  Fill(out, 0);
+  for (size_t i = 0; i < m; i++) {
+    for (size_t k = 0; k < p; k++) {
+      for (size_t j = 0; j < n; j++) {
+        out->ptr[i * p + k] += a.ptr[i * n + j] * b.ptr[j * p + k];
+      }
+    }
+  }
   /// END YOUR SOLUTION
 }
 
@@ -364,7 +371,13 @@ inline void AlignedDot(const float* __restrict__ a,
   out = (float*)__builtin_assume_aligned(out, TILE * ELEM_SIZE);
 
   /// BEGIN YOUR SOLUTION
-  
+  for (size_t i = 0; i < TILE; i++) {
+    for (size_t k = 0; k < TILE; k++) {
+      for (size_t j = 0; j < TILE; j++) {
+        out[i * TILE + k] += a[i * TILE + j] * b[j * TILE + k];
+      }
+    }
+  }
   /// END YOUR SOLUTION
 }
 
@@ -390,7 +403,20 @@ void MatmulTiled(const AlignedArray& a, const AlignedArray& b, AlignedArray* out
    *
    */
   /// BEGIN YOUR SOLUTION
-  
+  Fill(out, 0);
+  size_t m_tile = m / TILE;
+  size_t n_tile = n / TILE;
+  size_t p_tile = p / TILE;
+  for (size_t i = 0; i < m_tile; i++) {
+    for (size_t k = 0; k < p_tile; k++) {
+      for (size_t j = 0; j < n_tile; j++) {
+        scalar_t *a_tile = a.ptr + (i * n_tile + j) * TILE * TILE;
+        scalar_t *b_tile = b.ptr + (j * p_tile + k) * TILE * TILE;
+        scalar_t *out_tile = out->ptr + (i * p_tile + k) * TILE * TILE;
+        AlignedDot(a_tile, b_tile, out_tile);
+      }
+    }
+  }
   /// END YOUR SOLUTION
 }
 
@@ -405,7 +431,15 @@ void ReduceMax(const AlignedArray& a, AlignedArray* out, size_t reduce_size) {
    */
 
   /// BEGIN YOUR SOLUTION
-  
+  size_t a_size = a.size;
+  int idx = 0;
+  for(int i = 0; i < a.size; i += reduce_size) {
+    scalar_t curMax = a.ptr[i];
+    for(int j = i + 1; j < i + reduce_size; j++) {
+      curMax = max(curMax, a.ptr[j]);
+    }
+    out->ptr[idx++] = curMax;
+  }
   /// END YOUR SOLUTION
 }
 
@@ -420,7 +454,14 @@ void ReduceSum(const AlignedArray& a, AlignedArray* out, size_t reduce_size) {
    */
 
   /// BEGIN YOUR SOLUTION
-  
+  int idx = 0;
+  for(int i = 0; i < a.size; i += reduce_size) {
+    scalar_t curSum = 0;
+    for(int j = i; j < i + reduce_size; j++) {
+      curSum += a.ptr[j];
+    }
+    out->ptr[idx++] = curSum;
+  }
   /// END YOUR SOLUTION
 }
 
