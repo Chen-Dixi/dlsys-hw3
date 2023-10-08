@@ -372,9 +372,9 @@ inline void AlignedDot(const float* __restrict__ a,
 
   /// BEGIN YOUR SOLUTION
   for (size_t i = 0; i < TILE; i++) {
-    for (size_t k = 0; k < TILE; k++) {
-      for (size_t j = 0; j < TILE; j++) {
-        out[i * TILE + k] += a[i * TILE + j] * b[j * TILE + k];
+    for (size_t j = 0; j < TILE; j++) {
+      for (size_t k = 0; k < TILE; k++) {
+        out[i * TILE + j] += a[i * TILE + k] * b[k * TILE + j];
       }
     }
   }
@@ -403,20 +403,33 @@ void MatmulTiled(const AlignedArray& a, const AlignedArray& b, AlignedArray* out
    *
    */
   /// BEGIN YOUR SOLUTION
+  // Fill(out, 0);
+  // size_t m_tile = m / TILE;
+  // size_t n_tile = n / TILE;
+  // size_t p_tile = p / TILE;
+  // for (size_t i = 0; i < m_tile; i++) {
+  //   for (size_t k = 0; k < p_tile; k++) {
+  //     for (size_t j = 0; j < n_tile; j++) {
+  //       scalar_t *a_tile = a.ptr + (i * n_tile + j) * TILE * TILE;
+  //       scalar_t *b_tile = b.ptr + (j * p_tile + k) * TILE * TILE;
+  //       scalar_t *out_tile = out->ptr + (i * p_tile + k) * TILE * TILE;
+  //       AlignedDot(a_tile, b_tile, out_tile);
+  //     }
+  //   }
+  // }
   Fill(out, 0);
   size_t m_tile = m / TILE;
   size_t n_tile = n / TILE;
   size_t p_tile = p / TILE;
-  for (size_t i = 0; i < m_tile; i++) {
-    for (size_t k = 0; k < p_tile; k++) {
-      for (size_t j = 0; j < n_tile; j++) {
-        scalar_t *a_tile = a.ptr + (i * n_tile + j) * TILE * TILE;
-        scalar_t *b_tile = b.ptr + (j * p_tile + k) * TILE * TILE;
-        scalar_t *out_tile = out->ptr + (i * p_tile + k) * TILE * TILE;
+  for (size_t i = 0; i < m_tile; i++)
+    for (size_t j = 0; j < p_tile; j++)
+      for (size_t k = 0; k < n_tile; k++) {
+        // 拿到目标 TILE * TILE 的那一块
+        scalar_t* a_tile = a.ptr + (i * n_tile + k) * TILE * TILE;
+        scalar_t* b_tile = b.ptr + (k * p_tile + j) * TILE * TILE;
+        scalar_t* out_tile = out->ptr + (i * p_tile + j) * TILE * TILE;
         AlignedDot(a_tile, b_tile, out_tile);
       }
-    }
-  }
   /// END YOUR SOLUTION
 }
 
