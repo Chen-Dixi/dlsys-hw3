@@ -5,6 +5,7 @@
 
 #include <iostream>
 #include <sstream>
+#include <float.h>
 
 namespace needle {
 namespace cuda {
@@ -438,6 +439,7 @@ void Matmul(const CudaArray& a, const CudaArray& b, CudaArray* out, uint32_t M, 
    */
 
   /// BEGIN YOUR SOLUTION
+  // TODO cooperative fetching and the block shared memory register tiling covered in class.
   CudaDims dim = CudaOneDim(M * P);
   MatmulKernel<<<dim.grid, dim.block>>>(a.ptr, b.ptr, out->ptr, M, N, P);
   /// END YOUR SOLUTION
@@ -446,6 +448,69 @@ void Matmul(const CudaArray& a, const CudaArray& b, CudaArray* out, uint32_t M, 
 ////////////////////////////////////////////////////////////////////////////////
 // Max and sum reductions
 ////////////////////////////////////////////////////////////////////////////////
+
+// 地址a开始的N个元素，每组256个连续数据并行地找出最大值，放在output里。
+__global__ void ReduceMaxParallelKernel(const scalar_t* a, scalar_t* output, size_t N) {
+  // 创建同一个block的共享内存
+  __shared__ scalar_t block_cache[BASE_THREAD_NUM];
+
+  // 每个block内部的线程id
+  int tid = threadIdx.x;
+  int gid = blockIdx.x * blockDim.x + threadIdx.x;
+
+  // // Load data from global memory to shared memory
+  block_cache[tid] = (gid < N) ? a[gid] : -FLT_MAX;  // Assuming a minimum value for comparison
+
+  while (gid < N) {
+    block_cache[tid] = fmaxf(a[gid], block_cache[tid]);
+    gid += blockDim.x * gridDim.x;
+  }
+  // 等待同一个block里面的所有线程都执行到此处
+  __syncthreads();
+
+  // 同一个block里的元素进行max reduce 
+  for (int s = blockDim.x / 2; s > 0; s >>= 1) {
+    if (tid < s) {
+      block_cache[tid] = fmaxf(block_cache[tid], block_cache[tid + s]);
+    }
+    __syncthreads();
+  }
+
+  if (tid == 0) {
+    output[blockIdx.x] = block_cache[tid];
+  }
+}
+
+void ReduceMaxParallel(const scalar_t* a, scalar_t* out, size_t reduce_size) {
+  // 自己计算 并行参数
+  int blocks_per_grid = (reduce_size + BASE_THREAD_NUM - 1) / BASE_THREAD_NUM;
+  int threads_per_block = BASE_THREAD_NUM;
+
+  // allocate global memory
+  scalar_t* reduction_result;
+  
+  cudaError_t err = cudaMalloc(&reduction_result, blocks_per_grid * ELEM_SIZE);
+  if (err != cudaSuccess) throw std::runtime_error(cudaGetErrorString(err));
+
+  // Reduction Phase
+  ReduceMaxParallelKernel<<<blocks_per_grid, threads_per_block>>>(a, reduction_result, reduce_size);
+  
+  scalar_t max_value = reduction_result[0];
+  for (int i = 1; i < blocks_per_grid; i++) {
+    max_value = fmaxf(max_value, reduction_result[i]);
+  }
+  
+  while(blocks_per_grid > 1) {
+    int blocks_next = (blocks_per_grid + BASE_THREAD_NUM - 1) / BASE_THREAD_NUM;
+    ReduceMaxParallelKernel<<<blocks_next, threads_per_block>>>(reduction_result, reduction_result, blocks_next);
+    blocks_per_grid = blocks_next;
+  }
+
+  // 代码这个位置在cpu里，所有找不到cuda里的内存地址。会报segment fault。
+  // out->ptr = reduction_result[0];
+  // 只能用这个指令
+  cudaMemcpy(out, reduction_result, ELEM_SIZE, cudaMemcpyDeviceToDevice);
+}
 
 __global__ void ReduceMaxKernel(const scalar_t* a, scalar_t* out, size_t reduce_size, size_t out_len) {
   size_t gid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -456,7 +521,6 @@ __global__ void ReduceMaxKernel(const scalar_t* a, scalar_t* out, size_t reduce_
   }
   out[gid] = max_val;
 }
-
 
 void ReduceMax(const CudaArray& a, CudaArray* out, size_t reduce_size) {
   /**
@@ -469,8 +533,16 @@ void ReduceMax(const CudaArray& a, CudaArray* out, size_t reduce_size) {
    *   redice_size: size of the dimension to reduce over
    */
   /// BEGIN YOUR SOLUTION
-  CudaDims dim = CudaOneDim(out->size);
-  ReduceMaxKernel<<<dim.grid, dim.block>>>(a.ptr, out->ptr, reduce_size, out->size);
+  // TODO a more industrial-grade implementation, use a hierarchical mechanism that first aggregated across some smaller span,
+  // then had a secondary function that aggregated across these reduced arrays
+
+  // reduce_max如果没指定axis, 简单版的实现非常低效。需要利用Cuda并行优化
+  for(int i = 0; i < out->size; i++) {
+    ReduceMaxParallel(&a.ptr[i * reduce_size], &out->ptr[i], reduce_size);
+  }
+  // CudaDims dim = CudaOneDim(out->size);
+  // ReduceMaxKernel<<<dim.grid, dim.block>>>(a.ptr, out->ptr, reduce_size, out->size);
+  
   /// END YOUR SOLUTION
 }
 
