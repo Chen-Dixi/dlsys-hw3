@@ -13,6 +13,10 @@ namespace cuda {
 #define BASE_THREAD_NUM 256
 
 #define TILE 4
+#define BLOCK_V 4
+#define BLOCK_L 8
+#define BLOCK_S 4
+
 typedef float scalar_t;
 const size_t ELEM_SIZE = sizeof(scalar_t);
 
@@ -405,11 +409,79 @@ void EwiseTanh(const CudaArray& a, CudaArray* out) {
 __global__ void MatmulKernel(const scalar_t *a, scalar_t *b, scalar_t *out, int m, int n, int p) {
   size_t gid = blockIdx.x * blockDim.x + threadIdx.x;
   if (gid < m * p) {
-    size_t i = gid / p;
-    size_t j = gid % p;
-    out[gid] = 0;
-    for (size_t k = 0; k < n; k++) {
+    int i = gid / p;
+    int j = gid % p;
+    out[gid] = 0.0f;
+    for(int k = 0; k < n; k++) {
       out[gid] += a[i * n + k] * b[k * p + j];
+    }
+  }
+}
+
+__global__ void MatmulParallelKernel(const scalar_t* A, const scalar_t* B, scalar_t* out, int m, int n, int p) {
+  /**
+   * 并行化加速计算矩阵乘法。每个线程计算一个V*V的子矩阵，每个block计算一个L*L的大矩阵
+   * "We should implement a single function that works across all size metrices"
+   * 注意方法需要能处理 size 不是 L S V 倍数的情况。灵活运用 m, n, p 边界。
+  */
+  __shared__ scalar_t a_shared[BLOCK_L][BLOCK_S];
+  __shared__ scalar_t b_shared[BLOCK_S][BLOCK_L];
+
+  float c[BLOCK_V][BLOCK_V] = {0};
+  float a[BLOCK_V], b[BLOCK_V];
+  // 
+  int yblock = blockIdx.y;
+  int xblock = blockIdx.x;
+  int nthreads = blockDim.y * blockDim.x;
+  int tid = threadIdx.y * blockDim.x + threadIdx.x;
+
+  // 每个 block 负责处理一个 L*L 的子矩阵
+  for (int k0 = 0; k0 < n; k0 += BLOCK_S) {
+    __syncthreads();
+    // thread cooperative fetching shared memory
+    // sA[:, :] = A[k : k + S, yblock * L : yblock * L + L];
+    // sB[:, :] = B[k : k + S, xblock * L : xblock * L + L];
+    for (int j = 0; j < BLOCK_L * BLOCK_S / nthreads; ++j) {
+      int y_a = (j * nthreads + tid) / BLOCK_S;
+      int x_a = (j * nthreads + tid) % BLOCK_S;
+      int y_A = yblock * BLOCK_L + y_a;
+      int x_A = k0 + x_a;
+
+      int y_b = (j * nthreads + tid) / BLOCK_L;
+      int x_b = (j * nthreads + tid) % BLOCK_L;
+      int y_B = k0 + y_b;
+      int x_B = xblock * BLOCK_L + x_b;
+
+      // 这里可能需要判断边界条件，特别是在size不是 BLOCK_L_S_V的倍数时
+      a_shared[y_a][x_a] = A[y_A * n + x_A];
+      b_shared[y_b][x_b] = B[y_B * p + x_B];
+    }
+    __syncthreads();
+    // 每个 thread 负责处理一个 V*V 的子矩阵
+    for (int k = 0; k < BLOCK_S; ++k) {
+      // copy
+      for(int v = 0; v < BLOCK_V; v++) {
+        a[v] = a_shared[threadIdx.y * BLOCK_V + v][k];
+        b[v] = b_shared[k][threadIdx.x * BLOCK_V + v];
+      }
+      // compute
+      for(int i = 0; i < BLOCK_V; i++) {
+        for(int j = 0; j < BLOCK_V; j++) {
+          c[i][j] += a[i] * b[j];
+        }
+      }
+    }
+  }
+  // 每个 thread 计算好的 V*V 结果放回global memory
+  int ybase = blockIdx.y * blockDim.y + threadIdx.y; //
+  int xbase = blockIdx.x * blockDim.x + threadIdx.x;
+  for(int i = 0; i < BLOCK_V; i++) {
+    for(int j = 0; j < BLOCK_V; j++) {
+      int y = ybase * BLOCK_V + i;
+      int x = xbase * BLOCK_V + j;
+      if (y < m && x < p) {
+        out[y * p + x] = c[i][j];
+      }
     }
   }
 }
@@ -440,8 +512,16 @@ void Matmul(const CudaArray& a, const CudaArray& b, CudaArray* out, uint32_t M, 
 
   /// BEGIN YOUR SOLUTION
   // TODO cooperative fetching and the block shared memory register tiling covered in class.
-  CudaDims dim = CudaOneDim(M * P);
-  MatmulKernel<<<dim.grid, dim.block>>>(a.ptr, b.ptr, out->ptr, M, N, P);
+  // CudaDims dim = CudaOneDim(M * P);
+  // MatmulKernel<<<dim.grid, dim.block>>>(a.ptr, b.ptr, out->ptr, M, N, P);
+  
+  
+
+  // 并行参数, grid和block都是2维
+  dim3 grid((M + BLOCK_L + 1) / BLOCK_L, (P + BLOCK_S + 1) / BLOCK_S, 1);
+  // 每个 block 有 (N/V * N/V)
+  dim3 block(BLOCK_L / BLOCK_V, BLOCK_L / BLOCK_V, 1);
+  MatmulParallelKernel<<<grid, block>>>(a.ptr, b.ptr, out->ptr, M, N, P);
   /// END YOUR SOLUTION
 }
 
@@ -510,6 +590,7 @@ void ReduceMaxParallel(const scalar_t* a, scalar_t* out, size_t reduce_size) {
   // out->ptr = reduction_result[0];
   // 只能用这个指令
   cudaMemcpy(out, reduction_result, ELEM_SIZE, cudaMemcpyDeviceToDevice);
+  cudaFree(reduction_result);
 }
 
 __global__ void ReduceMaxKernel(const scalar_t* a, scalar_t* out, size_t reduce_size, size_t out_len) {
@@ -546,6 +627,69 @@ void ReduceMax(const CudaArray& a, CudaArray* out, size_t reduce_size) {
   /// END YOUR SOLUTION
 }
 
+__global__ void ReduceSumParallelKernel(const scalar_t* a, scalar_t* output, size_t N) {
+  // 创建同一个block的共享内存
+  __shared__ scalar_t block_cache[BASE_THREAD_NUM];
+
+  // 每个block内部的线程id
+  int tid = threadIdx.x;
+  int gid = blockIdx.x * blockDim.x + threadIdx.x;
+
+  // // Load data from global memory to shared memory
+  block_cache[tid] = 0.0f;  // Assuming a minimum value for comparison
+
+  while (gid < N) {
+    block_cache[tid] += a[gid];
+    gid += blockDim.x * gridDim.x;
+  }
+  // 等待同一个block里面的所有线程都执行到此处
+  __syncthreads();
+
+  // 同一个block里的元素进行max reduce 
+  for (int s = blockDim.x / 2; s > 0; s >>= 1) {
+    if (tid < s) {
+      block_cache[tid] += block_cache[tid + s];
+    }
+    __syncthreads();
+  }
+
+  if (tid == 0) {
+    output[blockIdx.x] = block_cache[tid];
+  }
+}
+
+void ReduceSumParallel(const scalar_t* a, scalar_t* out, size_t reduce_size) {
+  // 自己计算 并行参数
+  int blocks_per_grid = (reduce_size + BASE_THREAD_NUM - 1) / BASE_THREAD_NUM;
+  int threads_per_block = BASE_THREAD_NUM;
+
+  // allocate global memory
+  scalar_t* reduction_result;
+  
+  cudaError_t err = cudaMalloc(&reduction_result, blocks_per_grid * ELEM_SIZE);
+  if (err != cudaSuccess) throw std::runtime_error(cudaGetErrorString(err));
+
+  // Reduction Phase
+  ReduceSumParallelKernel<<<blocks_per_grid, threads_per_block>>>(a, reduction_result, reduce_size);
+  
+  scalar_t max_value = reduction_result[0];
+  for (int i = 1; i < blocks_per_grid; i++) {
+    max_value = fmaxf(max_value, reduction_result[i]);
+  }
+  
+  while(blocks_per_grid > 1) {
+    int blocks_next = (blocks_per_grid + BASE_THREAD_NUM - 1) / BASE_THREAD_NUM;
+    ReduceSumParallelKernel<<<blocks_next, threads_per_block>>>(reduction_result, reduction_result, blocks_next);
+    blocks_per_grid = blocks_next;
+  }
+
+  // 代码这个位置在cpu里，所有找不到cuda里的内存地址。会报segment fault。
+  // out->ptr = reduction_result[0];
+  // 只能用这个指令
+  cudaMemcpy(out, reduction_result, ELEM_SIZE, cudaMemcpyDeviceToDevice);
+  cudaFree(reduction_result);
+}
+
 __global__ void ReduceSumKernel(const scalar_t* a, scalar_t* out, size_t reduce_size, size_t out_len) {
   size_t gid = blockIdx.x * blockDim.x + threadIdx.x;
   if (gid >= out_len) return;
@@ -567,9 +711,22 @@ void ReduceSum(const CudaArray& a, CudaArray* out, size_t reduce_size) {
    *   redice_size: size of the dimension to reduce over
    */
   /// BEGIN YOUR SOLUTION
+  // DIM_INIT;
+  // ReduceSumKernel<<<dim.grid, dim.block>>>(a.ptr, out->ptr, reduce_size, out->size);
+  for(int i = 0; i < out->size; i++) {
+    ReduceSumParallel(&a.ptr[i * reduce_size], &out->ptr[i], reduce_size);
+  }
+  /// END YOUR SOLUTION
+}
+
+void VanillaReduceMax(const CudaArray& a, CudaArray* out, size_t reduce_size) {
+  DIM_INIT;
+  ReduceMaxKernel<<<dim.grid, dim.block>>>(a.ptr, out->ptr, reduce_size, out->size);
+}
+
+void VanillaReduceSum(const CudaArray& a, CudaArray* out, size_t reduce_size) {
   DIM_INIT;
   ReduceSumKernel<<<dim.grid, dim.block>>>(a.ptr, out->ptr, reduce_size, out->size);
-  /// END YOUR SOLUTION
 }
 
 }  // namespace cuda
@@ -640,5 +797,7 @@ PYBIND11_MODULE(ndarray_backend_cuda, m) {
   m.def("matmul", Matmul);
 
   m.def("reduce_max", ReduceMax);
+  m.def("vanilla_max", VanillaReduceMax);
   m.def("reduce_sum", ReduceSum);
+  m.def("vanilla_sum", VanillaReduceSum);
 }

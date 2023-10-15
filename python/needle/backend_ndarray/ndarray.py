@@ -567,7 +567,16 @@ class NDArray:
         view, out = self.reduce_view_out(axis)
         self.device.reduce_max(view.compact()._handle, out._handle, view.shape[-1])
         return out
+    
+    def vanilla_sum(self, axis=None):
+        view, out = self.reduce_view_out(axis)
+        self.device.vanilla_sum(view.compact()._handle, out._handle, view.shape[-1])
+        return out
 
+    def vanilla_max(self, axis=None):
+        view, out = self.reduce_view_out(axis)
+        self.device.vanilla_max(view.compact()._handle, out._handle, view.shape[-1])
+        return out
 
 def array(a, dtype="float32", device=None):
     """ Convenience methods to match numpy a bit more closely."""
