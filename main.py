@@ -1,15 +1,13 @@
+import sys
+sys.path.append('./python')
 import numpy as np
-import pytest
-import mugrade
 import needle as ndl
 from needle import backend_ndarray as nd
 
 device = nd.cuda()
 dims = [
-    (24, 25, 26),
-    (25, 25, 26)
+    (24, 25, 26)
 ]
-m, n, p = (24, 25, 26)
 if __name__ == '__main__':
     for (m, n, p) in dims:
         _A = np.random.randn(m, n)

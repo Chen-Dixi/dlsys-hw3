@@ -430,9 +430,7 @@ __global__ void MatmulParallelKernel(const scalar_t* A, const scalar_t* B, scala
 
   float c[BLOCK_V][BLOCK_V] = {0};
   float a[BLOCK_V]={0}, b[BLOCK_V]={0};
-  // 
-  printf("yblock %d, xblock %d\n", blockIdx.y, blockIdx.x);
-  printf("ythread %d, xthread %d\n\n", threadIdx.y, threadIdx.x);
+  
   int yblock = blockIdx.y;
   int xblock = blockIdx.x;
   int nthreads = blockDim.y * blockDim.x;
@@ -491,11 +489,9 @@ __global__ void MatmulParallelKernel(const scalar_t* A, const scalar_t* B, scala
   // 每个 thread 计算好的 V*V 结果放回global memory
   int ybase = blockIdx.y * blockDim.y + threadIdx.y;
   int xbase = blockIdx.x * blockDim.x + threadIdx.x;
-  int numCols = min(p - xbase * BLOCK_V, BLOCK_V);
-  int numRows = min(m - ybase * BLOCK_V, BLOCK_V);
 
-  for(int i = 0; numRows; i++) {
-    for(int j = 0; j < numCols; j++) {
+  for(int i = 0; BLOCK_V; i++) {
+    for(int j = 0; j < BLOCK_V; j++) {
       int y = ybase * BLOCK_V + i;
       int x = xbase * BLOCK_V + j;
       if (y < m && x < p) {
