@@ -5,6 +5,7 @@
 
 #include <iostream>
 #include <sstream>
+#include <stdio.h>
 #include <float.h>
 
 namespace needle {
@@ -453,8 +454,17 @@ __global__ void MatmulParallelKernel(const scalar_t* A, const scalar_t* B, scala
       int x_B = xblock * BLOCK_L + x_b;
 
       // 这里可能需要判断边界条件，特别是在size不是 BLOCK_L_S_V的倍数时
-      a_shared[y_a][x_a] = A[y_A * n + x_A];
-      b_shared[y_b][x_b] = B[y_B * p + x_B];
+      // 
+      if (y_A < m && x_A < n) {
+        a_shared[y_a][x_a] = A[y_A * n + x_A];
+      }
+      
+
+      // if (y_B < n && x_B < p)
+      // 这里可能需要判断边界条件，特别是在size不是 BLOCK_L_S_V的倍数时
+      if (y_B < n && x_B < p) {
+        b_shared[y_b][x_b] = B[y_B * p + x_B];
+      }
     }
     __syncthreads();
     // 每个 thread 负责处理一个 V*V 的子矩阵
@@ -514,11 +524,9 @@ void Matmul(const CudaArray& a, const CudaArray& b, CudaArray* out, uint32_t M, 
   // TODO cooperative fetching and the block shared memory register tiling covered in class.
   // CudaDims dim = CudaOneDim(M * P);
   // MatmulKernel<<<dim.grid, dim.block>>>(a.ptr, b.ptr, out->ptr, M, N, P);
-  
-  
 
   // 并行参数, grid和block都是2维
-  dim3 grid((M + BLOCK_L + 1) / BLOCK_L, (P + BLOCK_S + 1) / BLOCK_S, 1);
+  dim3 grid((M + BLOCK_L - 1) / BLOCK_L, (P + BLOCK_S - 1) / BLOCK_S, 1);
   // 每个 block 有 (N/V * N/V)
   dim3 block(BLOCK_L / BLOCK_V, BLOCK_L / BLOCK_V, 1);
   MatmulParallelKernel<<<grid, block>>>(a.ptr, b.ptr, out->ptr, M, N, P);
