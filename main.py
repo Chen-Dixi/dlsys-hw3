@@ -6,7 +6,7 @@ from needle import backend_ndarray as nd
 
 device = nd.cuda()
 dims = [
-    (24, 25, 26)
+    (8,9,10),
 ]
 if __name__ == '__main__':
     for (m, n, p) in dims:
