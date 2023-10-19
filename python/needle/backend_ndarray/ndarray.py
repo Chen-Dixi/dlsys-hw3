@@ -541,6 +541,17 @@ class NDArray:
                 self.compact()._handle, other.compact()._handle, out._handle, m, n, p
             )
             return out
+    
+    def matmul_vanilla(self, other):
+        assert self.ndim == 2 and other.ndim == 2
+        assert self.shape[1] == other.shape[0]
+
+        m, n, p = self.shape[0], self.shape[1], other.shape[1]
+        out = NDArray.make((m, p), device=self.device)
+        self.device.matmul_vanilla(
+            self.compact()._handle, other.compact()._handle, out._handle, m, n, p
+        )
+        return out
 
     ### Reductions, i.e., sum/max over all element or over given axis
     def reduce_view_out(self, axis):

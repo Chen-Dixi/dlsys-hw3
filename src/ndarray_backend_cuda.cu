@@ -429,8 +429,10 @@ __global__ void MatmulParallelKernel(const scalar_t* A, const scalar_t* B, scala
   __shared__ scalar_t b_shared[BLOCK_S][BLOCK_L];
 
   float c[BLOCK_V][BLOCK_V] = {0};
-  float a[BLOCK_V], b[BLOCK_V];
+  float a[BLOCK_V]={0}, b[BLOCK_V]={0};
   // 
+  printf("yblock %d, xblock %d\n", blockIdx.y, blockIdx.x);
+  printf("ythread %d, xthread %d\n\n", threadIdx.y, threadIdx.x);
   int yblock = blockIdx.y;
   int xblock = blockIdx.x;
   int nthreads = blockDim.y * blockDim.x;
@@ -457,6 +459,8 @@ __global__ void MatmulParallelKernel(const scalar_t* A, const scalar_t* B, scala
       // 
       if (y_A < m && x_A < n) {
         a_shared[y_a][x_a] = A[y_A * n + x_A];
+      } else {
+        a_shared[y_a][x_a] = 0;
       }
       
 
@@ -464,6 +468,8 @@ __global__ void MatmulParallelKernel(const scalar_t* A, const scalar_t* B, scala
       // 这里可能需要判断边界条件，特别是在size不是 BLOCK_L_S_V的倍数时
       if (y_B < n && x_B < p) {
         b_shared[y_b][x_b] = B[y_B * p + x_B];
+      } else {
+        b_shared[y_b][x_b] = 0;
       }
     }
     __syncthreads();
@@ -483,10 +489,13 @@ __global__ void MatmulParallelKernel(const scalar_t* A, const scalar_t* B, scala
     }
   }
   // 每个 thread 计算好的 V*V 结果放回global memory
-  int ybase = blockIdx.y * blockDim.y + threadIdx.y; //
+  int ybase = blockIdx.y * blockDim.y + threadIdx.y;
   int xbase = blockIdx.x * blockDim.x + threadIdx.x;
-  for(int i = 0; i < BLOCK_V; i++) {
-    for(int j = 0; j < BLOCK_V; j++) {
+  int numCols = min(p - xbase * BLOCK_V, BLOCK_V);
+  int numRows = min(m - ybase * BLOCK_V, BLOCK_V);
+
+  for(int i = 0; numRows; i++) {
+    for(int j = 0; j < numCols; j++) {
       int y = ybase * BLOCK_V + i;
       int x = xbase * BLOCK_V + j;
       if (y < m && x < p) {
@@ -525,12 +534,20 @@ void Matmul(const CudaArray& a, const CudaArray& b, CudaArray* out, uint32_t M, 
   // CudaDims dim = CudaOneDim(M * P);
   // MatmulKernel<<<dim.grid, dim.block>>>(a.ptr, b.ptr, out->ptr, M, N, P);
 
+  // printf("GRID SIZE:(%d, %d)\n",(M + BLOCK_L - 1) / BLOCK_L, (P + BLOCK_L - 1) / BLOCK_L);
   // 并行参数, grid和block都是2维
-  dim3 grid((M + BLOCK_L - 1) / BLOCK_L, (P + BLOCK_S - 1) / BLOCK_S, 1);
+  dim3 grid((M + BLOCK_L - 1) / BLOCK_L, (P + BLOCK_L - 1) / BLOCK_L, 1);
   // 每个 block 有 (N/V * N/V)
   dim3 block(BLOCK_L / BLOCK_V, BLOCK_L / BLOCK_V, 1);
   MatmulParallelKernel<<<grid, block>>>(a.ptr, b.ptr, out->ptr, M, N, P);
   /// END YOUR SOLUTION
+}
+
+void MatmulVanilla(const CudaArray& a, const CudaArray& b, CudaArray* out, uint32_t M, uint32_t N,
+            uint32_t P) {
+  
+  CudaDims dim = CudaOneDim(M * P);
+  MatmulKernel<<<dim.grid, dim.block>>>(a.ptr, b.ptr, out->ptr, M, N, P);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -803,6 +820,7 @@ PYBIND11_MODULE(ndarray_backend_cuda, m) {
   m.def("ewise_tanh", EwiseTanh);
 
   m.def("matmul", Matmul);
+  m.def("matmul_vanilla", MatmulVanilla);
 
   m.def("reduce_max", ReduceMax);
   m.def("vanilla_max", VanillaReduceMax);
