@@ -532,9 +532,9 @@ void Matmul(const CudaArray& a, const CudaArray& b, CudaArray* out, uint32_t M, 
 
   // printf("GRID SIZE:(%d, %d)\n",(M + BLOCK_L - 1) / BLOCK_L, (P + BLOCK_L - 1) / BLOCK_L);
   // 并行参数, grid和block都是2维
-  dim3 grid((M + BLOCK_L - 1) / BLOCK_L, (P + BLOCK_L - 1) / BLOCK_L, 1);
+  dim3 grid((M + BLOCK_L - 1) / BLOCK_L, (P + BLOCK_L - 1) / BLOCK_L);
   // 每个 block 有 (N/V * N/V)
-  dim3 block(BLOCK_L / BLOCK_V, BLOCK_L / BLOCK_V, 1);
+  dim3 block(BLOCK_L / BLOCK_V, BLOCK_L / BLOCK_V);
   MatmulParallelKernel<<<grid, block>>>(a.ptr, b.ptr, out->ptr, M, N, P);
   /// END YOUR SOLUTION
 }
