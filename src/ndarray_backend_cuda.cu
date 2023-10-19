@@ -596,14 +596,9 @@ void ReduceMaxParallel(const scalar_t* a, scalar_t* out, size_t reduce_size) {
   // Reduction Phase
   ReduceMaxParallelKernel<<<blocks_per_grid, threads_per_block>>>(a, reduction_result, reduce_size);
   
-  scalar_t max_value = reduction_result[0];
-  for (int i = 1; i < blocks_per_grid; i++) {
-    max_value = fmaxf(max_value, reduction_result[i]);
-  }
-  
   while(blocks_per_grid > 1) {
     int blocks_next = (blocks_per_grid + BASE_THREAD_NUM - 1) / BASE_THREAD_NUM;
-    ReduceMaxParallelKernel<<<blocks_next, threads_per_block>>>(reduction_result, reduction_result, blocks_next);
+    ReduceMaxParallelKernel<<<blocks_next, threads_per_block>>>(reduction_result, reduction_result, blocks_per_grid);
     blocks_per_grid = blocks_next;
   }
 
@@ -693,14 +688,9 @@ void ReduceSumParallel(const scalar_t* a, scalar_t* out, size_t reduce_size) {
   // Reduction Phase
   ReduceSumParallelKernel<<<blocks_per_grid, threads_per_block>>>(a, reduction_result, reduce_size);
   
-  scalar_t max_value = reduction_result[0];
-  for (int i = 1; i < blocks_per_grid; i++) {
-    max_value = fmaxf(max_value, reduction_result[i]);
-  }
-  
   while(blocks_per_grid > 1) {
     int blocks_next = (blocks_per_grid + BASE_THREAD_NUM - 1) / BASE_THREAD_NUM;
-    ReduceSumParallelKernel<<<blocks_next, threads_per_block>>>(reduction_result, reduction_result, blocks_next);
+    ReduceSumParallelKernel<<<blocks_next, threads_per_block>>>(reduction_result, reduction_result, blocks_per_grid);
     blocks_per_grid = blocks_next;
   }
 

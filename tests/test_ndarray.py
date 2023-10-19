@@ -75,6 +75,7 @@ def test_compact(params, device):
 
 
 reduce_params = [
+    {"dims": (512,), "axis": 0},
     {"dims": (2048,), "axis": 0},
     {"dims": (25, 25, 25), "axis": 0},
     {"dims": (19, 20, 21), "axis": 1},
