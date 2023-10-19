@@ -490,7 +490,7 @@ __global__ void MatmulParallelKernel(const scalar_t* A, const scalar_t* B, scala
   int ybase = blockIdx.y * blockDim.y + threadIdx.y;
   int xbase = blockIdx.x * blockDim.x + threadIdx.x;
 
-  for(int i = 0; BLOCK_V; i++) {
+  for(int i = 0; i < BLOCK_V; i++) {
     for(int j = 0; j < BLOCK_V; j++) {
       int y = ybase * BLOCK_V + i;
       int x = xbase * BLOCK_V + j;
